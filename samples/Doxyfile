@@ -1,0 +1,34 @@
+PROJECT_NAME           = "Sample Kotlin Project"
+OUTPUT_DIRECTORY       = docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+
+# Input settings
+INPUT                  = .
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.kt *.md
+EXTENSION_MAPPING      = kt=Java
+RECURSIVE              = YES
+
+# Filter settings
+# Use the compiled local binary from the dist/ folder.
+# Adjust the path (e.g. use .exe on Windows, or without extension on Linux/macOS).
+FILTER_PATTERNS        = *.kt="..\dist\kotlin-doxygen.exe"
+FILTER_SOURCE_FILES    = YES
+
+# Extraction settings
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_LOCAL_METHODS  = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+
+# Output formats
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO

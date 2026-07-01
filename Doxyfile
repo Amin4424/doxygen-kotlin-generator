@@ -1,0 +1,42 @@
+# Doxyfile for Kotlin project
+PROJECT_NAME           = "Kotlin Doxygen Project"
+OUTPUT_DIRECTORY       = docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+
+# Input settings
+INPUT                  = .
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.kt *.java *.md
+EXTENSION_MAPPING      = kt=Java
+RECURSIVE              = YES
+EXCLUDE                = .git build dist venv scripts tests
+
+# Filter settings
+# Uses the compiled standalone executable. On Windows, it runs dist/kotlin-doxygen.exe.
+FILTER_PATTERNS        = *.kt="dist/kotlin-doxygen.exe"
+FILTER_SOURCE_FILES    = YES
+
+# Extraction settings
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_LOCAL_METHODS  = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+FORCE_LOCAL_INCLUDES   = NO
+
+# Markdown / Homepage
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# HTML Options
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+
+# Latex Options
+GENERATE_LATEX         = NO

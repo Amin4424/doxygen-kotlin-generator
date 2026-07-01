@@ -1,0 +1,78 @@
+name: Build and Release Executables
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.job_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            job_name: Linux x64
+            artifact_name: kotlin-doxygen-linux-x64
+            binary_name: kotlin-doxygen
+          - os: macos-13
+            job_name: macOS Intel x64
+            artifact_name: kotlin-doxygen-macos-x64
+            binary_name: kotlin-doxygen
+          - os: macos-latest
+            job_name: macOS Apple Silicon arm64
+            artifact_name: kotlin-doxygen-macos-arm64
+            binary_name: kotlin-doxygen
+          - os: windows-latest
+            job_name: Windows x64
+            artifact_name: kotlin-doxygen-windows-x64.exe
+            binary_name: kotlin-doxygen.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+
+      - name: Build Standalone Binary
+        run: |
+          pyinstaller --onefile --clean --name kotlin-doxygen kotlin_doxygen/__main__.py
+
+      - name: Rename Binary for Release
+        shell: bash
+        run: |
+          # Rename output binary
+          mkdir -p release_dist
+          mv dist/${{ matrix.binary_name }} release_dist/${{ matrix.artifact_name }}
+          # Make sure it's executable on Linux/macOS
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            chmod +x release_dist/${{ matrix.artifact_name }}
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release_dist/${{ matrix.artifact_name }}
+          retention-days: 5
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: release_dist/${{ matrix.artifact_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

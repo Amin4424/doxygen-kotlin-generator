@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kotlin-doxygen"
+version = "0.1.0"
+description = "A Kotlin filter and generator for Doxygen"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Amin4424" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0.0",
+    "pytest>=7.0.0"
+]
+
+[project.scripts]
+kotlin-doxygen = "kotlin_doxygen.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["kotlin_doxygen*"]
