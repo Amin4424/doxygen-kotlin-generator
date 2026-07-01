@@ -51,13 +51,11 @@ jobs:
         run: |
           pyinstaller --onefile --clean --name kotlin-doxygen kotlin_doxygen/__main__.py
 
-      - name: Rename Binary for Release
+      - name: Rename Binary
         shell: bash
         run: |
-          # Rename output binary
           mkdir -p release_dist
           mv dist/${{ matrix.binary_name }} release_dist/${{ matrix.artifact_name }}
-          # Make sure it's executable on Linux/macOS
           if [ "${{ matrix.os }}" != "windows-latest" ]; then
             chmod +x release_dist/${{ matrix.artifact_name }}
           fi
@@ -67,12 +65,26 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: release_dist/${{ matrix.artifact_name }}
-          retention-days: 5
+          retention-days: 1
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          files: release_dist/${{ matrix.artifact_name }}
+          path: release_artifacts
+          merge-multiple: true
+
+      - name: Display downloaded artifacts
+        run: ls -la release_artifacts
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
