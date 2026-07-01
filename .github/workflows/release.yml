@@ -20,7 +20,7 @@ jobs:
             job_name: Linux x64
             artifact_name: kotlin-doxygen-linux-x64
             binary_name: kotlin-doxygen
-          - os: macos-13
+          - os: macos-15-intel
             job_name: macOS Intel x64
             artifact_name: kotlin-doxygen-macos-x64
             binary_name: kotlin-doxygen
