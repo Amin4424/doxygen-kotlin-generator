@@ -137,6 +137,11 @@ class TestKotlinDoxygen(unittest.TestCase):
         output = filter_kotlin(kt_code, "StringExt.kt")
         self.assertIn("public static final char firstChar;", output)
 
+    def test_filter_kotlin_prepends_file_directive(self):
+        kt_code = "package com.example"
+        output = filter_kotlin(kt_code, "Greeter.kt")
+        self.assertTrue(output.startswith("/** @file */"))
+
     def test_cli_version(self):
         with patch('sys.argv', ['kotlin-doxygen', '--version']):
             stdout = io.StringIO()

@@ -17,7 +17,7 @@ EXCLUDE                = .git build dist venv scripts tests
 
 # Filter settings
 # Uses the compiled standalone executable. On Windows, it runs dist/kotlin-doxygen.exe.
-FILTER_PATTERNS        = *.kt="dist/kotlin-doxygen.exe"
+FILTER_PATTERNS        = *.kt="dist\kotlin-doxygen.exe"
 FILTER_SOURCE_FILES    = YES
 
 # Extraction settings

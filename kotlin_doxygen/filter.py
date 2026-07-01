@@ -642,4 +642,4 @@ def filter_kotlin(content: str, filename: str) -> str:
     if top_level_class_open:
         output.append('\n} /* end top level */\n')
 
-    return "".join(output)
+    return "/** @file */\n" + "".join(output)
