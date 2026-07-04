@@ -89,7 +89,11 @@ def split_params(param_str):
             depth += 1
             current.append(c)
         elif c in (')', '>', '}'):
-            depth -= 1
+            if c == '>' and i > 0 and param_str[i - 1] == '-':
+                current.append(c)
+                i += 1
+                continue
+            depth = max(0, depth - 1)
             current.append(c)
         elif c == ',' and depth == 0:
             params.append("".join(current).strip())

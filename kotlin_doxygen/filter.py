@@ -1,7 +1,16 @@
 import os
 import re
 from kotlin_doxygen.parser import TokenStream, split_params
-from kotlin_doxygen.renderer import MODIFIERS, map_type, infer_type, clean_initializer, translate_param_list
+from kotlin_doxygen.renderer import (
+    MODIFIERS,
+    map_type,
+    infer_type,
+    clean_initializer,
+    translate_param_list,
+    parse_parameter,
+    strip_annotations,
+    normalize_type_params,
+)
 
 def filter_kotlin(content: str, filename: str) -> str:
     stream = TokenStream(content)
@@ -19,6 +28,122 @@ def filter_kotlin(content: str, filename: str) -> str:
     brace_depth = 0
     top_level_class_open = False
     active_modifiers = []
+    imports = {}
+
+    def skip_balanced(open_symbol, close_symbol):
+        depth = 1
+        while stream.pos < stream.len and depth > 0:
+            token = stream.next()
+            if token[1] == open_symbol:
+                depth += 1
+            elif token[1] == close_symbol:
+                depth -= 1
+
+    def read_balanced(open_symbol, close_symbol):
+        depth = 1
+        tokens = []
+        while stream.pos < stream.len and depth > 0:
+            token = stream.next()
+            if token[1] == open_symbol:
+                depth += 1
+            elif token[1] == close_symbol:
+                depth -= 1
+            if depth > 0:
+                tokens.append(token[1])
+        return "".join(tokens)
+
+    def skip_annotation():
+        if not stream.peek() or stream.peek()[1] != '@':
+            return False
+
+        stream.next()
+        # Optional use-site target, e.g. @file:Suppress or @get:JvmName.
+        first_t, first_idx = stream.peek_non_whitespace()
+        second_t = stream.tokens[first_idx + 1] if first_idx is not None and first_idx + 1 < stream.len else None
+        if first_t and first_t[0] == 'IDENTIFIER' and second_t and second_t[1] == ':':
+            stream.pos = first_idx + 2
+
+        while stream.pos < stream.len and stream.peek()[0] == 'SPACE':
+            stream.next()
+
+        while stream.pos < stream.len:
+            token = stream.peek()
+            if token[0] == 'IDENTIFIER' or token[1] == '.':
+                stream.next()
+                continue
+            break
+
+        next_t, next_idx = stream.peek_non_whitespace()
+        if next_t and next_t[1] == '(':
+            stream.pos = next_idx + 1
+            skip_balanced('(', ')')
+        return True
+
+    def skip_expression_body():
+        depth = 0
+        started = False
+        while stream.pos < stream.len:
+            token = stream.peek()
+            value = token[1]
+            if not started and token[0] in ('SPACE', 'NEWLINE'):
+                stream.next()
+                continue
+            started = True
+            if value in ('(', '{', '['):
+                depth += 1
+            elif value in (')', '}', ']'):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif token[0] == 'NEWLINE' and depth == 0:
+                break
+            stream.next()
+
+    def collect_expression_body():
+        depth = 0
+        tokens = []
+        started = False
+        while stream.pos < stream.len:
+            token = stream.peek()
+            value = token[1]
+            if not started and token[0] in ('SPACE', 'NEWLINE'):
+                stream.next()
+                continue
+            started = True
+            if value in ('(', '{', '['):
+                depth += 1
+            elif value in (')', '}', ']'):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif token[0] == 'NEWLINE' and depth == 0:
+                break
+            tokens.append(stream.next()[1])
+        return "".join(tokens)
+
+    def resolve_supertype(supertype, class_name):
+        supertype = strip_annotations(supertype).strip()
+        if supertype == class_name and class_name in imports:
+            return imports[class_name]
+        return supertype
+
+    def skip_where_clause():
+        next_t, next_idx = stream.peek_non_whitespace()
+        if not next_t or next_t[1] != 'where':
+            return
+
+        stream.pos = next_idx + 1
+        depth = 0
+        while stream.pos < stream.len:
+            token = stream.peek()
+            value = token[1]
+            if value in ('(', '<', '['):
+                depth += 1
+            elif value in (')', '>', ']'):
+                depth = max(0, depth - 1)
+            elif depth == 0 and value in ('{', '='):
+                break
+            stream.next()
 
     def is_in_class_scope():
         return any(s['type'] in ('class', 'companion') for s in scope_stack)
@@ -44,6 +169,10 @@ def filter_kotlin(content: str, filename: str) -> str:
         t = stream.peek()
         if not t:
             break
+
+        if t[1] == '@':
+            skip_annotation()
+            continue
 
         # Flush modifiers if the next semantic token is not a declaration or modifier
         next_sem, _ = stream.peek_non_whitespace()
@@ -86,11 +215,17 @@ def filter_kotlin(content: str, filename: str) -> str:
         if t[0] == 'IDENTIFIER' and t[1] == 'import':
             output.append('import')
             stream.next()
+            import_tokens = []
             while stream.pos < stream.len:
                 im = stream.peek()
                 if im[0] == 'NEWLINE':
                     break
-                output.append(stream.next()[1])
+                value = stream.next()[1]
+                import_tokens.append(value)
+                output.append(value)
+            import_text = "".join(import_tokens).strip()
+            if import_text and '*' not in import_text and ' as ' not in import_text:
+                imports[import_text.split('.')[-1]] = import_text
             output.append(';')
             continue
 
@@ -127,6 +262,13 @@ def filter_kotlin(content: str, filename: str) -> str:
             else:
                 class_name = "Unknown"
 
+            # Skip class type parameters, e.g. class Box<T>.
+            class_type_params = ""
+            next_t, next_idx = stream.peek_non_whitespace()
+            if next_t and next_t[1] == '<':
+                stream.pos = next_idx + 1
+                class_type_params = normalize_type_params(read_balanced('<', '>'))
+
             # Parse primary constructor if exists
             next_t, next_idx = stream.peek_non_whitespace()
             primary_constructor_params = ""
@@ -151,11 +293,33 @@ def filter_kotlin(content: str, filename: str) -> str:
             if next_t and next_t[1] == ':':
                 stream.pos = next_idx + 1
                 super_tokens = []
+                super_depth = 0
+                saw_super_token = False
                 while stream.pos < stream.len:
                     st = stream.peek()
-                    if st[1] == '{':
+                    if st[1] == 'where' and super_depth == 0:
+                        break
+                    if st[1] == '{' and super_depth == 0:
                         break
                     if st[0] == 'NEWLINE':
+                        next_super_t, _ = stream.peek_non_whitespace(start_offset=1)
+                        if (
+                            saw_super_token
+                            and super_depth == 0
+                            and next_super_t
+                            and next_super_t[1] in ('fun', 'val', 'var', 'class', 'interface', 'object', 'enum')
+                        ):
+                            break
+                        super_tokens.append(' ')
+                        stream.next()
+                        continue
+                    if st[1] in ('(', '<', '['):
+                        super_depth += 1
+                    elif st[1] in (')', '>', ']'):
+                        super_depth = max(0, super_depth - 1)
+                    if st[0] not in ('SPACE', 'NEWLINE'):
+                        saw_super_token = True
+                    if st[1] == '{' and super_depth == 0:
                         break
                     super_tokens.append(stream.next()[1])
                 
@@ -165,6 +329,7 @@ def filter_kotlin(content: str, filename: str) -> str:
                     stype = stype.strip()
                     is_class = '(' in stype or i == 0
                     stype_clean = stype.split('(')[0].strip()
+                    stype_clean = resolve_supertype(stype_clean, class_name)
                     if is_class and not extends_clause:
                         extends_clause = f"extends {stype_clean}"
                     else:
@@ -185,6 +350,8 @@ def filter_kotlin(content: str, filename: str) -> str:
             if implements_clause:
                 inheritance += " implements " + ", ".join(implements_clause)
 
+            skip_where_clause()
+
             # Build visibility/static modifiers
             vis = 'public'
             if 'private' in active_modifiers:
@@ -204,7 +371,7 @@ def filter_kotlin(content: str, filename: str) -> str:
             cls_mod_str = " ".join(cls_mods)
             active_modifiers = []
 
-            output.append(f"{cls_mod_str} {java_kind} {class_name}{inheritance} ")
+            output.append(f"{cls_mod_str} {java_kind} {class_name}{class_type_params}{inheritance} ")
 
             # Prepare primary constructor fields and constructor method to inject inside the class body
             extra_body_content = ""
@@ -213,19 +380,18 @@ def filter_kotlin(content: str, filename: str) -> str:
                 constructor_args = []
                 for part in parts:
                     part = part.strip()
-                    has_val_var = re.match(r'^(val|var)\b', part) or 'val ' in part or 'var ' in part
-                    clean_part = re.sub(r'^(val|var)\s+', '', part)
-                    clean_part = clean_part.split('=')[0].strip()
-                    if ':' in clean_part:
-                        name, ptype = clean_part.split(':', 1)
-                        name = name.strip()
-                        ptype = map_type(ptype.strip())
+                    clean_for_flag = strip_annotations(part)
+                    has_val = re.search(r'(^|\s)val\s+', clean_for_flag) is not None
+                    has_var = re.search(r'(^|\s)var\s+', clean_for_flag) is not None
+                    parsed = parse_parameter(part)
+                    if parsed:
+                        name, ptype = parsed
                         constructor_args.append(f"{ptype} {name}")
-                        if has_val_var:
-                            is_final = "final " if 'val' in part else ""
+                        if has_val or has_var:
+                            is_final = "final " if has_val else ""
                             extra_body_content += f"\n    public {is_final}{ptype} {name};"
                     else:
-                        constructor_args.append(f"Object {clean_part}")
+                        constructor_args.append("Object param")
                 
                 args_str = ", ".join(constructor_args)
                 extra_body_content += f"\n    public {class_name}({args_str}) {{}}"
@@ -355,16 +521,11 @@ def filter_kotlin(content: str, filename: str) -> str:
 
             stream.next()  # consume "fun"
 
+            fun_type_params = ""
             next_t, next_idx = stream.peek_non_whitespace()
             if next_t and next_t[1] == '<':
                 stream.pos = next_idx + 1
-                g_depth = 1
-                while stream.pos < stream.len and g_depth > 0:
-                    gt = stream.next()
-                    if gt[1] == '<':
-                        g_depth += 1
-                    elif gt[1] == '>':
-                        g_depth -= 1
+                fun_type_params = normalize_type_params(read_balanced('<', '>'))
 
             scan_idx = stream.pos
             tokens_before_paren = []
@@ -415,12 +576,16 @@ def filter_kotlin(content: str, filename: str) -> str:
                 ret_tokens = []
                 while stream.pos < stream.len:
                     rt = stream.peek()
+                    if rt[1] == 'where':
+                        break
                     if rt[1] in ('{', '=', '}'):
                         break
                     if rt[0] == 'NEWLINE':
                         break
                     ret_tokens.append(stream.next()[1])
                 return_type = map_type("".join(ret_tokens))
+
+            skip_where_clause()
 
             vis = 'public'
             if 'private' in active_modifiers:
@@ -447,7 +612,8 @@ def filter_kotlin(content: str, filename: str) -> str:
                 else:
                     translated_params = f"{mapped_receiver} {receiver_var}"
 
-            output.append(f"{mod_str} {return_type} {fun_name}({translated_params}) ")
+            generic_prefix = f"{fun_type_params} " if fun_type_params else ""
+            output.append(f"{mod_str} {generic_prefix}{return_type} {fun_name}({translated_params}) ")
 
             next_t, next_idx = stream.peek_non_whitespace()
             if next_t and next_t[1] == '{':
@@ -462,11 +628,7 @@ def filter_kotlin(content: str, filename: str) -> str:
                 output.append("{}")
             elif next_t and next_t[1] == '=':
                 stream.pos = next_idx + 1
-                while stream.pos < stream.len:
-                    nt = stream.peek()
-                    if nt[0] == 'NEWLINE':
-                        break
-                    stream.next()
+                skip_expression_body()
                 output.append("{}")
             else:
                 output.append(";")
@@ -485,13 +647,7 @@ def filter_kotlin(content: str, filename: str) -> str:
             next_t, next_idx = stream.peek_non_whitespace()
             if next_t and next_t[1] == '<':
                 stream.pos = next_idx + 1
-                g_depth = 1
-                while stream.pos < stream.len and g_depth > 0:
-                    gt = stream.next()
-                    if gt[1] == '<':
-                        g_depth += 1
-                    elif gt[1] == '>':
-                        g_depth -= 1
+                read_balanced('<', '>')
 
             # 2. Scan forward to find ':' or '=' or 'by' or 'NEWLINE' to parse name and check for extension property
             scan_idx = stream.pos
@@ -543,19 +699,15 @@ def filter_kotlin(content: str, filename: str) -> str:
             initializer = None
             if next_t and next_t[1] == '=':
                 stream.pos = next_idx + 1
-                init_tokens = []
-                while stream.pos < stream.len:
-                    it = stream.peek()
-                    if it[0] == 'NEWLINE':
-                        break
-                    init_tokens.append(stream.next()[1])
-                initializer = clean_initializer("".join(init_tokens))
+                initializer = clean_initializer(collect_expression_body())
 
             # 5. Check for delegate if next is 'by'
             next_t, next_idx = stream.peek_non_whitespace()
+            delegate_initializer = None
             if next_t and next_t[1] == 'by':
                 stream.pos = next_idx + 1
                 depth = 0
+                delegate_tokens = []
                 while stream.pos < stream.len:
                     nt = stream.peek()
                     if nt[1] in ('(', '{', '['):
@@ -566,12 +718,15 @@ def filter_kotlin(content: str, filename: str) -> str:
                         break
                     elif depth == 0 and nt[0] == 'IDENTIFIER' and nt[1] in ('val', 'var', 'fun', 'class', 'interface', 'object', 'enum', 'get', 'set'):
                         break
-                    stream.next()
+                    delegate_tokens.append(stream.next()[1])
+                delegate_initializer = "".join(delegate_tokens).strip()
 
             if explicit_type:
                 java_type = explicit_type
             elif initializer:
                 java_type = infer_type(initializer)
+            elif delegate_initializer:
+                java_type = infer_type(delegate_initializer)
             else:
                 java_type = 'Object'
 
@@ -626,11 +781,7 @@ def filter_kotlin(content: str, filename: str) -> str:
                             g_depth -= 1
                 elif next_t and next_t[1] == '=':
                     stream.pos = next_idx + 1
-                    while stream.pos < stream.len:
-                        nt = stream.peek()
-                        if nt[0] == 'NEWLINE':
-                            break
-                        stream.next()
+                    skip_expression_body()
                 
                 # Peek for next getter/setter
                 next_t, next_idx = stream.peek_non_whitespace()
