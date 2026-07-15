@@ -22,6 +22,31 @@ TYPE_MAP = {
     'DoubleArray': 'double[]',
     'BooleanArray': 'boolean[]',
     'ShortArray': 'short[]',
+    # Kotlin stdlib types
+    'Pair': 'Pair',
+    'Triple': 'Triple',
+    'Result': 'Result',
+    # Coroutine types
+    'Job': 'Job',
+    'Deferred': 'Deferred',
+    'CoroutineScope': 'CoroutineScope',
+    'CoroutineContext': 'CoroutineContext',
+    'Continuation': 'Continuation',
+    'CancellableContinuation': 'CancellableContinuation',
+    'DisposableHandle': 'DisposableHandle',
+    'SupervisorJob': 'SupervisorJob',
+    'NonCancellable': 'NonCancellable',
+    # Coroutine dispatcher types
+    'CoroutineDispatcher': 'CoroutineDispatcher',
+    'Dispatchers': 'Dispatchers',
+    # DateTime types (kotlinx-datetime)
+    'Instant': 'Instant',
+    'LocalDate': 'LocalDate',
+    'LocalTime': 'LocalTime',
+    'LocalDateTime': 'LocalDateTime',
+    'TimeZone': 'TimeZone',
+    'Period': 'Period',
+    'Duration': 'Duration',
 }
 
 BOXED_TYPE_MAP = {
@@ -36,6 +61,7 @@ BOXED_TYPE_MAP = {
 }
 
 GENERIC_TYPE_MAP = {
+    # Collections
     'MutableList': 'List',
     'MutableSet': 'Set',
     'MutableMap': 'Map',
@@ -44,10 +70,32 @@ GENERIC_TYPE_MAP = {
     'ArrayList': 'ArrayList',
     'HashMap': 'HashMap',
     'HashSet': 'HashSet',
+    'LinkedHashMap': 'LinkedHashMap',
+    'LinkedHashSet': 'LinkedHashSet',
+    'TreeMap': 'TreeMap',
+    'TreeSet': 'TreeSet',
+    # Flow types
     'MutableStateFlow': 'MutableStateFlow',
     'StateFlow': 'StateFlow',
     'MutableSharedFlow': 'MutableSharedFlow',
     'SharedFlow': 'SharedFlow',
+    # Coroutine types
+    'Deferred': 'Deferred',
+    'CompletableDeferred': 'CompletableDeferred',
+    'Channel': 'Channel',
+    'BroadcastChannel': 'BroadcastChannel',
+    # Compose types
+    'MutableState': 'MutableState',
+    'State': 'State',
+    'MutableIntState': 'MutableIntState',
+    'MutableFloatState': 'MutableFloatState',
+    'MutableDoubleState': 'MutableDoubleState',
+    'MutableLongState': 'MutableLongState',
+    # Other common types
+    'Lazy': 'Lazy',
+    'Pair': 'Pair',
+    'Triple': 'Triple',
+    'Result': 'Result',
 }
 
 MODIFIERS = {
@@ -223,21 +271,87 @@ def infer_type(initializer):
         return 'long'
     if re.match(r'^\d+\.\d+f?$', initializer):
         return 'float' if initializer.endswith('f') else 'double'
-    if 'ArrayList' in initializer:
-        return 'ArrayList'
-    if 'HashMap' in initializer:
-        return 'HashMap'
-    if 'HashSet' in initializer:
-        return 'HashSet'
-    if 'listOf' in initializer:
+
+    # Collection factory functions
+    if re.search(r'\blistOf\b', initializer):
         return 'List'
-    if 'mapOf' in initializer:
+    if re.search(r'\bmutableListOf\b', initializer):
+        return 'List'
+    if re.search(r'\barrayListOf\b', initializer):
+        return 'ArrayList'
+    if re.search(r'\bmapOf\b', initializer):
         return 'Map'
-    if 'setOf' in initializer:
+    if re.search(r'\bmutableMapOf\b', initializer):
+        return 'Map'
+    if re.search(r'\bhashMapOf\b', initializer):
+        return 'HashMap'
+    if re.search(r'\blinkedMapOf\b', initializer):
+        return 'LinkedHashMap'
+    if re.search(r'\bsetOf\b', initializer):
         return 'Set'
+    if re.search(r'\bmutableSetOf\b', initializer):
+        return 'Set'
+    if re.search(r'\bhashSetOf\b', initializer):
+        return 'HashSet'
+    if re.search(r'\barrayOf\b', initializer):
+        return 'Array'
+    if re.search(r'\bintArrayOf\b', initializer):
+        return 'int[]'
+    if re.search(r'\blongArrayOf\b', initializer):
+        return 'long[]'
+    if re.search(r'\bfloatArrayOf\b', initializer):
+        return 'float[]'
+    if re.search(r'\bdoubleArrayOf\b', initializer):
+        return 'double[]'
+    if re.search(r'\bbooleanArrayOf\b', initializer):
+        return 'boolean[]'
+    if re.search(r'\bcharArrayOf\b', initializer):
+        return 'char[]'
+    if re.search(r'\bbyteArrayOf\b', initializer):
+        return 'byte[]'
+    if re.search(r'\bshortArrayOf\b', initializer):
+        return 'short[]'
+
+    # Empty collection factories
+    if re.search(r'\bemptyList\b', initializer):
+        return 'List'
+    if re.search(r'\bemptyMap\b', initializer):
+        return 'Map'
+    if re.search(r'\bemptySet\b', initializer):
+        return 'Set'
+
+    # Build functions
+    if re.search(r'\bbuildList\b', initializer):
+        return 'List'
+    if re.search(r'\bbuildMap\b', initializer):
+        return 'Map'
+    if re.search(r'\bbuildSet\b', initializer):
+        return 'Set'
+
+    # Sequence/Flow/Channel factories
+    if re.search(r'\bsequenceOf\b', initializer):
+        return 'Sequence'
+    if re.search(r'\bsequence\b', initializer):
+        return 'Sequence'
+    if re.search(r'\bflowOf\b', initializer):
+        return 'Flow'
+    if re.search(r'\bchannelOf\b', initializer):
+        return 'Channel'
+
+    # State producers
+    if re.search(r'\bderivedStateOf\b', initializer):
+        return 'State'
+    if re.search(r'\bproduceState\b', initializer):
+        return 'State'
+    if re.search(r'\bsnapshotFlow\b', initializer):
+        return 'Flow'
+
+    # remember block
     remember_block_match = re.match(r'^remember\s*\{(.*)\}$', initializer, re.S)
     if remember_block_match:
         return infer_type(remember_block_match.group(1).strip())
+
+    # StateOf functions
     if initializer.startswith('mutableIntStateOf'):
         return 'int'
     if initializer.startswith('mutableFloatStateOf'):
@@ -249,6 +363,8 @@ def infer_type(initializer):
     state_match = re.match(r'^(mutableStateOf|remember)\s*\((.*)\)$', initializer, re.S)
     if state_match:
         return infer_type(state_match.group(2))
+
+    # Flow types
     flow_match = re.match(r'^(MutableStateFlow|StateFlow|MutableSharedFlow|SharedFlow)\s*\((.*)\)$', initializer, re.S)
     if flow_match:
         inner_type = infer_type(flow_match.group(2))
@@ -257,6 +373,30 @@ def infer_type(initializer):
         }:
             inner_type = BOXED_TYPE_MAP.get(inner_type.capitalize(), inner_type)
         return f"{flow_match.group(1)}<{inner_type}>"
+
+    # Constructor call: ClassName(args...)
+    # Strip generic type params first, then match constructor pattern
+    ctor_match = re.match(r'^([A-Z][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(', initializer)
+    if ctor_match:
+        return ctor_match.group(1)
+
+    # Lowercase function call that looks like a factory
+    factory_match = re.match(r'^([a-z][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(', initializer)
+    if factory_match:
+        func_name = factory_match.group(1)
+        # Map known factory functions to their return types
+        factory_map = {
+            'listOf': 'List', 'mutableListOf': 'List', 'arrayListOf': 'ArrayList',
+            'mapOf': 'Map', 'mutableMapOf': 'Map', 'hashMapOf': 'HashMap',
+            'setOf': 'Set', 'mutableSetOf': 'Set', 'hashSetOf': 'HashSet',
+            'arrayOf': 'Array', 'sequenceOf': 'Sequence', 'flowOf': 'Flow',
+            'channelOf': 'Channel', 'emptyList': 'List', 'emptyMap': 'Map',
+            'emptySet': 'Set', 'buildList': 'List', 'buildMap': 'Map',
+            'buildSet': 'Set', 'listOfNotNull': 'List',
+        }
+        if func_name in factory_map:
+            return factory_map[func_name]
+
     return 'Object'
 
 def clean_initializer(init_str):

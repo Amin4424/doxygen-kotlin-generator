@@ -34,22 +34,29 @@ def filter_kotlin(content: str, filename: str) -> str:
         depth = 1
         while stream.pos < stream.len and depth > 0:
             token = stream.next()
-            if token[1] == open_symbol:
+            val = token[1]
+            if val == open_symbol:
                 depth += 1
-            elif token[1] == close_symbol:
+            elif val == close_symbol:
                 depth -= 1
+            elif close_symbol == '>' and val.endswith('>') and len(val) > 1:
+                depth -= val.count('>')
 
     def read_balanced(open_symbol, close_symbol):
         depth = 1
         tokens = []
         while stream.pos < stream.len and depth > 0:
             token = stream.next()
-            if token[1] == open_symbol:
+            val = token[1]
+            if val == open_symbol:
                 depth += 1
-            elif token[1] == close_symbol:
+            elif val == close_symbol:
                 depth -= 1
+            elif close_symbol == '>' and val.endswith('>') and len(val) > 1:
+                # Handle tokenized '>>' as two '>' chars
+                depth -= val.count('>')
             if depth > 0:
-                tokens.append(token[1])
+                tokens.append(val)
         return "".join(tokens)
 
     def skip_annotation():
@@ -229,6 +236,28 @@ def filter_kotlin(content: str, filename: str) -> str:
             output.append(';')
             continue
 
+        # Typealias
+        if t[0] == 'IDENTIFIER' and t[1] == 'typealias':
+            stream.next()  # consume 'typealias'
+            # Read alias name
+            next_t, next_idx = stream.peek_non_whitespace()
+            alias_name = next_t[1] if next_t and next_t[0] == 'IDENTIFIER' else 'Unknown'
+            stream.pos = next_idx + 1
+            # Skip '='
+            next_t, next_idx = stream.peek_non_whitespace()
+            if next_t and next_t[1] == '=':
+                stream.pos = next_idx + 1
+            # Read the target type
+            type_tokens = []
+            while stream.pos < stream.len:
+                tt = stream.peek()
+                if tt[0] == 'NEWLINE':
+                    break
+                type_tokens.append(stream.next()[1])
+            target_type = map_type("".join(type_tokens).strip())
+            output.append(f"/* typealias {alias_name} = {target_type} */")
+            continue
+
         # Modifiers collection
         if t[0] == 'IDENTIFIER' and t[1] in MODIFIERS:
             active_modifiers.append(t[1])
@@ -244,6 +273,7 @@ def filter_kotlin(content: str, filename: str) -> str:
             is_enum = (t[1] == 'enum')
             is_object = (t[1] == 'object')
             is_interface = (t[1] == 'interface')
+            is_sealed = 'sealed' in active_modifiers
             kind_keyword = t[1]
 
             stream.next()  # consume keyword
@@ -307,7 +337,7 @@ def filter_kotlin(content: str, filename: str) -> str:
                             saw_super_token
                             and super_depth == 0
                             and next_super_t
-                            and next_super_t[1] in ('fun', 'val', 'var', 'class', 'interface', 'object', 'enum')
+                            and next_super_t[1] in ('fun', 'val', 'var', 'class', 'interface', 'object', 'enum', 'data', 'sealed', 'abstract', 'open', 'inner')
                         ):
                             break
                         super_tokens.append(' ')
@@ -363,7 +393,10 @@ def filter_kotlin(content: str, filename: str) -> str:
             if is_in_companion() or is_in_object():
                 cls_mods.append('static')
             elif len(scope_stack) > 0 and 'inner' not in active_modifiers:
-                cls_mods.append('static')
+                # Don't add static to nested classes inside sealed classes
+                parent_is_sealed = any(s.get('is_sealed', False) for s in scope_stack)
+                if not parent_is_sealed:
+                    cls_mods.append('static')
 
             if 'abstract' in active_modifiers:
                 cls_mods.append('abstract')
@@ -400,7 +433,7 @@ def filter_kotlin(content: str, filename: str) -> str:
             next_t, next_idx = stream.peek_non_whitespace()
             if next_t and next_t[1] == '{':
                 stream.pos = next_idx + 1
-                scope_stack.append({'type': 'class', 'is_object': is_object, 'brace_depth': brace_depth, 'name': class_name})
+                scope_stack.append({'type': 'class', 'is_object': is_object, 'is_sealed': is_sealed, 'brace_depth': brace_depth, 'name': class_name})
                 brace_depth += 1
                 output.append("{\n" + extra_body_content + "\n")
             else:
@@ -600,6 +633,7 @@ def filter_kotlin(content: str, filename: str) -> str:
             if 'external' in active_modifiers:
                 modifiers.append('native')
 
+            is_suspend = 'suspend' in active_modifiers
             mod_str = " ".join(modifiers)
             active_modifiers = []
 
@@ -613,7 +647,8 @@ def filter_kotlin(content: str, filename: str) -> str:
                     translated_params = f"{mapped_receiver} {receiver_var}"
 
             generic_prefix = f"{fun_type_params} " if fun_type_params else ""
-            output.append(f"{mod_str} {generic_prefix}{return_type} {fun_name}({translated_params}) ")
+            suspend_comment = "/* suspend */ " if is_suspend else ""
+            output.append(f"{suspend_comment}{mod_str} {generic_prefix}{return_type} {fun_name}({translated_params}) ")
 
             next_t, next_idx = stream.peek_non_whitespace()
             if next_t and next_t[1] == '{':
